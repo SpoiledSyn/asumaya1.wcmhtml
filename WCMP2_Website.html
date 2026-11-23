@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transmission Line Lab | WCM555</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #101722;
+      color: #f1f5fa;
+      font: 16px/1.5 system-ui, sans-serif;
+      color-scheme: dark;
+    }
+    main { max-width: 1080px; margin: auto; padding: 28px 16px; }
+    h1 { margin: 4px 0; font-size: clamp(2rem, 6vw, 3.4rem); }
+    h2 { margin: 0 0 12px; font-size: 1.2rem; }
+    p { margin: 0 0 12px; }
+    .tag { color: #64dfed; font-weight: bold; letter-spacing: .1em; }
+    .muted, figcaption { color: #bbc9d9; }
+    .layout { display: grid; grid-template-columns: 270px 1fr; gap: 14px; margin-top: 20px; }
+    .panel { background: #182332; border: 1px solid #344457; padding: 16px; border-radius: 12px; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 7px; }
+    button {
+      padding: 7px 10px;
+      border: 1px solid #7288a2;
+      border-radius: 6px;
+      background: #263951;
+      color: white;
+      cursor: pointer;
+      font: inherit;
+      font-size: .88rem;
+    }
+    button[aria-pressed="true"] { background: #64dfed; color: #11212e; font-weight: bold; }
+    :focus-visible { outline: 2px solid #64dfed; outline-offset: 3px; }
+    .control { margin: 16px 0; }
+    .control label { display: flex; justify-content: space-between; gap: 8px; }
+    input[type="range"] { width: 100%; accent-color: #64dfed; }
+    output { color: #64dfed; }
+    figure { margin: 0; }
+    canvas { display: block; width: 100%; height: 310px; background: #101a28; border-radius: 8px; }
+    figcaption, .legend { font-size: .85rem; margin: 8px 0; }
+    .legend { display: flex; flex-wrap: wrap; gap: 6px 15px; }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+    .metrics div { padding: 8px; border: 1px solid #40516a; border-radius: 7px; }
+    .metrics small { display: block; color: #bbc9d9; }
+    details { margin-top: 14px; }
+    summary { cursor: pointer; font-weight: bold; }
+    details p { margin: 10px 0 0; }
+    @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="tag">WCM555 INTERACTIVE LAB</div>
+  <h1>Transmission Line Lab</h1>
+  <p class="muted">Explore how a load reflects voltage waves on a 50 Ω transmission line.</p>
+
+  <div class="layout">
+    <section class="panel">
+      <h2>Experiment controls</h2>
+      <div class="buttons" role="group" aria-label="Signal mode">
+        <button id="ac" aria-pressed="true">AC response</button>
+        <button id="step" aria-pressed="false">Step response</button>
+      </div>
+
+      <div class="control">
+        <label for="load">Load resistance <output id="loadValue" for="load"></output></label>
+        <input id="load" type="range" min="0" max="250" value="150">
+        <div class="buttons" role="group" aria-label="Load presets">
+          <button data-load="0">Short</button>
+          <button data-load="50">Matched</button>
+          <button data-load="150">150 Ω</button>
+          <button data-load="Infinity">Open</button>
+        </div>
+      </div>
+
+      <div class="control" id="frequencyControl">
+        <label for="frequency">Frequency <output id="frequencyValue" for="frequency"></output></label>
+        <input id="frequency" type="range" min="25" max="200" value="100">
+      </div>
+
+      <div class="control" id="timeControl" hidden>
+        <label for="time">Elapsed time <output id="timeValue" for="time"></output></label>
+        <input id="time" type="range" min="0" max="45" step="0.1" value="0">
+      </div>
+
+      <div class="buttons">
+        <button id="play">Play</button>
+        <button id="reset">Restart</button>
+      </div>
+      <p class="muted" style="margin-top:10px">The animation plays in slow motion.</p>
+    </section>
+
+    <section class="panel">
+      <h2 id="plotTitle">AC voltage along the line</h2>
+      <div class="legend" role="group" aria-label="Visible curves">
+        <label style="color:#64dfed"><input id="showIncident" type="checkbox" checked> Incident</label>
+        <label style="color:#ffb477"><input id="showReflected" type="checkbox" checked> Reflected</label>
+        <label style="color:#e4c3ff"><input id="showTotal" type="checkbox" checked> Total</label>
+        <label id="envelopeControl"><input id="showEnvelope" type="checkbox" checked> Peak envelope</label>
+      </div>
+      <figure>
+        <canvas id="graph" role="img"
+          aria-label="Plot of voltage in volts against position in metres"></canvas>
+        <figcaption>Source at 0 m · Load at 4 m</figcaption>
+      </figure>
+      <div class="metrics">
+        <div><small>Reflection coefficient Γ</small><strong id="gammaValue"></strong></div>
+        <div><small id="label2"></small><strong id="value2"></strong></div>
+        <div><small id="label3"></small><strong id="value3"></strong></div>
+      </div>
+      <p id="observation"></p>
+    </section>
+  </div>
+
+  <details class="panel">
+    <summary>Equations and model assumptions</summary>
+    <p>The model uses a 4 m lossless line, a 50 Ω characteristic impedance,
+      a matched source, and a propagation speed of 2 × 10⁸ m/s.
+      The incident signal has a 1 V peak in AC mode and a 1 V height in step mode.</p>
+    <p><strong>Reflection.</strong> Γ = (R<sub>L</sub> − Z<sub>0</sub>) /
+      (R<sub>L</sub> + Z<sub>0</sub>). A short gives Γ = −1, a match gives
+      Γ = 0, and an open gives Γ = +1.</p>
+    <p><strong>AC.</strong> λ = v/f, β = 2π/λ, and
+      VSWR = (1 + |Γ|) / (1 − |Γ|). At distance d from the load, the
+      incident voltage is cos(φ + βd) V and the reflected voltage is
+      Γ cos(φ − βd) V. Their sum is the total voltage.</p>
+    <p><strong>Step.</strong> At position x from the source, the incident
+      step arrives at x/v and the reflected step arrives at (2L − x)/v,
+      where L is the line length. The step reaches the load at 20 ns.
+      The matched source absorbs any reflection when it returns at 40 ns.</p>
+  </details>
+</main>
+
+<script>
+  const get = id => document.getElementById(id);
+  const canvas = get("graph");
+  const ctx = canvas.getContext("2d");
+  const length = 4;        // metres
+  const impedance = 50;    // ohms
+  const speed = 2e8;       // metres per second
+  const speedNs = speed / 1e9;
+  const maxTime = 45;      // nanoseconds
+
+  let mode = "ac";
+  let resistance = 150;
+  let phase = 0;
+  let elapsed = 0;
+  let playing = false;
+  let lastFrame = null;
+
+  function reflectionCoefficient() {
+    if (resistance === Infinity) return 1;
+    return (resistance - impedance) / (resistance + impedance);
+  }
+
+  function wavelength() {
+    return speed / (Number(get("frequency").value) * 1e6);
+  }
+
+  function updateReadouts() {
+    const gamma = reflectionCoefficient();
+    const magnitude = Math.abs(gamma);
+    const isAC = mode === "ac";
+
+    get("loadValue").textContent = resistance === Infinity ? "Open (∞ Ω)" : resistance + " Ω";
+    get("frequencyValue").textContent = get("frequency").value + " MHz";
+    get("gammaValue").textContent = (gamma > 0 ? "+" : "") + gamma.toFixed(3);
+    get("frequencyControl").hidden = !isAC;
+    get("timeControl").hidden = isAC;
+    get("envelopeControl").hidden = !isAC;
+    get("ac").setAttribute("aria-pressed", isAC);
+    get("step").setAttribute("aria-pressed", !isAC);
+    get("plotTitle").textContent = isAC ? "AC voltage along the line" : "Step voltage along the line";
+    get("label2").textContent = isAC ? "VSWR" : "One-way delay";
+    get("value2").textContent = isAC
+      ? (magnitude === 1 ? "∞" : ((1 + magnitude) / (1 - magnitude)).toFixed(2) + " : 1")
+      : (length / speedNs) + " ns";
+    get("label3").textContent = isAC ? "Wavelength" : "Settled load voltage";
+    get("value3").textContent = isAC
+      ? wavelength().toFixed(2) + " m"
+      : (1 + gamma).toFixed(3) + " V";
+
+    let observation = "The load is matched, so there is no reflection.";
+    if (gamma < 0) observation = "The reflected voltage is inverted at the load.";
+    if (gamma > 0) observation = "The reflection has the same polarity as the incident voltage at the load.";
+    get("observation").textContent = observation;
+    get("play").textContent = playing ? "Pause" : "Play";
+    draw();
+  }
+
+  function draw() {
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    const scale = window.devicePixelRatio || 1;
+    const pixelWidth = Math.round(width * scale);
+    const pixelHeight = Math.round(height * scale);
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+    }
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+
+    const left = 52;
+    const right = width - 18;
+    const top = 16;
+    const bottom = height - 50;
+    const xPixel = x => left + (right - left) * x / length;
+    const yPixel = volts => top + (bottom - top) * (2.1 - volts) / 4.2;
+
+    ctx.font = "13px system-ui";
+    ctx.fillStyle = "#bbc9d9";
+    ctx.textBaseline = "middle";
+
+    for (let volts = -2; volts <= 2; volts++) {
+      const y = yPixel(volts);
+      ctx.strokeStyle = volts === 0 ? "#6e829a" : "#344457";
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(right, y);
+      ctx.stroke();
+      ctx.textAlign = "right";
+      ctx.fillText(volts, left - 7, y);
+    }
+
+    for (let x = 0; x <= length; x++) {
+      const pixel = xPixel(x);
+      ctx.strokeStyle = "#344457";
+      ctx.beginPath();
+      ctx.moveTo(pixel, top);
+      ctx.lineTo(pixel, bottom);
+      ctx.stroke();
+      ctx.textAlign = "center";
+      ctx.fillText(x, pixel, bottom + 14);
+    }
+
+    ctx.fillText("Position along line (m)", (left + right) / 2, height - 13);
+    ctx.save();
+    ctx.translate(14, (top + bottom) / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText("Voltage (V)", 0, 0);
+    ctx.restore();
+
+    function trace(points, color, dash, lineWidth) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.setLineDash(dash);
+      ctx.beginPath();
+      points.forEach(([x, volts], index) => {
+        if (index === 0) ctx.moveTo(xPixel(x), yPixel(volts));
+        else ctx.lineTo(xPixel(x), yPixel(volts));
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 1;
+    }
+
+    const gamma = reflectionCoefficient();
+    const incident = [];
+    const reflected = [];
+    const total = [];
+
+    function addPoint(x, incoming, returning) {
+      incident.push([x, incoming]);
+      reflected.push([x, returning]);
+      total.push([x, incoming + returning]);
+    }
+
+    if (mode === "ac") {
+      const beta = 2 * Math.PI / wavelength();
+      const upper = [];
+      const lower = [];
+
+      for (let i = 0; i <= 240; i++) {
+        const x = length * i / 240;
+        const d = length - x;
+        addPoint(x, Math.cos(phase + beta * d), gamma * Math.cos(phase - beta * d));
+        const peak = Math.sqrt(Math.max(0, 1 + gamma ** 2 + 2 * gamma * Math.cos(2 * beta * d)));
+        upper.push([x, peak]);
+        lower.push([x, -peak]);
+      }
+
+      if (get("showEnvelope").checked) {
+        trace(upper, "#bbc9d9", [3, 5], 1);
+        trace(lower, "#bbc9d9", [3, 5], 1);
+      }
+    } else {
+      // Draw vertical edges at the incident and reflected wavefronts.
+      const boundaries = [0, length];
+      for (const front of [elapsed * speedNs, 2 * length - elapsed * speedNs]) {
+        if (front > 0 && front < length) boundaries.push(front);
+      }
+      boundaries.sort((a, b) => a - b);
+
+      const incomingAt = x => elapsed >= x / speedNs ? 1 : 0;
+      const returningAt = x => elapsed >= (2 * length - x) / speedNs ? gamma : 0;
+      addPoint(0, incomingAt(0), returningAt(0));
+
+      for (let i = 1; i < boundaries.length; i++) {
+        const start = boundaries[i - 1];
+        const end = boundaries[i];
+        const middle = (start + end) / 2;
+        addPoint(start, incomingAt(middle), returningAt(middle));
+        addPoint(end, incomingAt(middle), returningAt(middle));
+      }
+      addPoint(length, incomingAt(length), returningAt(length));
+      get("time").value = elapsed.toFixed(1);
+      get("timeValue").textContent = elapsed.toFixed(1) + " ns";
+    }
+
+    if (get("showTotal").checked) trace(total, "#e4c3ff", [], 3);
+    if (get("showIncident").checked) trace(incident, "#64dfed", [], 1.5);
+    if (get("showReflected").checked) trace(reflected, "#ffb477", [6, 4], 1.8);
+  }
+
+  function animate(timestamp) {
+    if (!playing) {
+      lastFrame = null;
+      return;
+    }
+
+    const seconds = lastFrame === null ? 0 : Math.min((timestamp - lastFrame) / 1000, 0.05);
+    lastFrame = timestamp;
+
+    if (mode === "ac") {
+      phase = (phase + 2 * Math.PI * 0.65 * seconds) % (2 * Math.PI);
+    } else {
+      elapsed = Math.min(maxTime, elapsed + 7 * seconds);
+      if (elapsed === maxTime) {
+        playing = false;
+        lastFrame = null;
+        updateReadouts();
+        return;
+      }
+    }
+
+    draw();
+    requestAnimationFrame(animate);
+  }
+
+  function selectMode(nextMode) {
+    mode = nextMode;
+    updateReadouts();
+  }
+
+  get("ac").onclick = () => selectMode("ac");
+  get("step").onclick = () => selectMode("step");
+
+  document.querySelectorAll("[data-load]").forEach(button => {
+    button.onclick = () => {
+      resistance = Number(button.dataset.load);
+      get("load").value = resistance === Infinity ? get("load").max : resistance;
+      updateReadouts();
+    };
+  });
+
+  get("load").oninput = () => {
+    resistance = Number(get("load").value);
+    updateReadouts();
+  };
+  get("frequency").oninput = updateReadouts;
+  get("time").oninput = () => {
+    elapsed = Number(get("time").value);
+    draw();
+  };
+
+  let frameRequest;
+  get("play").onclick = () => {
+    playing = !playing;
+    lastFrame = null;
+    cancelAnimationFrame(frameRequest);
+
+    if (playing) {
+      if (mode === "step" && elapsed === maxTime) elapsed = 0;
+      frameRequest = requestAnimationFrame(animate);
+    }
+    updateReadouts();
+  };
+
+  get("reset").onclick = () => {
+    phase = 0;
+    elapsed = 0;
+    draw();
+  };
+
+  for (const id of ["showIncident", "showReflected", "showTotal", "showEnvelope"]) {
+    get(id).onchange = draw;
+  }
+
+  window.addEventListener("resize", draw);
+  updateReadouts();
+</script>
+</body>
+</html>
